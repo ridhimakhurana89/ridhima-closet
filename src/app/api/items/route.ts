@@ -8,7 +8,7 @@ export async function GET(request: NextRequest) {
 
   let query = getSupabaseAdmin()
     .from("items")
-    .select("id, name, category, subcategory, photo_url, color_primary, color_family, formality, flatters_me, tags, last_worn_date")
+    .select("id, name, category, subcategory, description, silhouette, length, photo_url, color_primary, color_family, formality, flatters_me, tags, last_worn_date")
     .order("created_at", { ascending: false });
 
   if (category) query = query.eq("category", category);

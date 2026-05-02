@@ -48,6 +48,9 @@ type SavedItem = {
   name: string;
   category: Category;
   subcategory: string;
+  description?: string;
+  silhouette?: string;
+  length?: string;
   photo_url: string;
   color_primary: string;
   color_family: ColorFamily;
@@ -110,6 +113,9 @@ export default function TagClient() {
   const [galleryCategory, setGalleryCategory] = useState<Category | null>(null);
   const [galleryItems, setGalleryItems] = useState<SavedItem[]>([]);
   const [galleryLoading, setGalleryLoading] = useState(false);
+  const [editingItem, setEditingItem] = useState<SavedItem | null>(null);
+  const [editStatus, setEditStatus] = useState<"idle" | "saving" | "deleting" | "error">("idle");
+  const [editError, setEditError] = useState<string | null>(null);
   const savingIds = useRef<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -140,10 +146,65 @@ export default function TagClient() {
     if (galleryCategory === cat) {
       setGalleryCategory(null);
       setGalleryItems([]);
+      setEditingItem(null);
       return;
     }
     setGalleryCategory(cat);
+    setEditingItem(null);
     loadGallery(cat);
+  }
+
+  async function saveEdit() {
+    if (!editingItem) return;
+    setEditStatus("saving");
+    setEditError(null);
+    try {
+      const res = await fetch(`/api/items/${editingItem.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: editingItem.name,
+          category: editingItem.category,
+          subcategory: editingItem.subcategory,
+          description: editingItem.description,
+          color_primary: editingItem.color_primary,
+          color_family: editingItem.color_family,
+          silhouette: editingItem.silhouette,
+          length: editingItem.length,
+          formality: editingItem.formality,
+          tags: editingItem.tags,
+          flatters_me: editingItem.flatters_me,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Update failed");
+      if (galleryCategory) await loadGallery(galleryCategory);
+      refreshCounts();
+      setEditingItem(null);
+      setEditStatus("idle");
+    } catch (err) {
+      setEditStatus("error");
+      setEditError(err instanceof Error ? err.message : "Update failed");
+    }
+  }
+
+  async function deleteEdit() {
+    if (!editingItem) return;
+    if (!confirm(`Delete "${editingItem.name}" permanently? This cannot be undone.`)) return;
+    setEditStatus("deleting");
+    setEditError(null);
+    try {
+      const res = await fetch(`/api/items/${editingItem.id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Delete failed");
+      if (galleryCategory) await loadGallery(galleryCategory);
+      refreshCounts();
+      setEditingItem(null);
+      setEditStatus("idle");
+    } catch (err) {
+      setEditStatus("error");
+      setEditError(err instanceof Error ? err.message : "Delete failed");
+    }
   }
 
   useEffect(() => {
@@ -395,30 +456,206 @@ export default function TagClient() {
               <p className="text-sm text-stone-500">Nothing saved in this category yet.</p>
             ) : (
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-                {galleryItems.map((item) => (
-                  <div
-                    key={item.id}
-                    className={`rounded border p-2 ${
-                      item.flatters_me ? "border-stone-200" : "border-amber-300 bg-amber-50"
-                    }`}
+                {galleryItems.map((item) => {
+                  const isSelected = editingItem?.id === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        setEditingItem(item);
+                        setEditStatus("idle");
+                        setEditError(null);
+                      }}
+                      className={`rounded border p-2 text-left transition hover:border-amber-500 hover:shadow ${
+                        isSelected
+                          ? "border-amber-700 ring-2 ring-amber-300"
+                          : item.flatters_me
+                          ? "border-stone-200"
+                          : "border-amber-300 bg-amber-50"
+                      }`}
+                    >
+                      <img
+                        src={item.photo_url}
+                        alt={item.name}
+                        className="h-32 w-full rounded object-cover"
+                        loading="lazy"
+                      />
+                      <p className="mt-1 truncate text-xs font-medium" title={item.name}>
+                        {item.name}
+                      </p>
+                      <p className="truncate text-[11px] text-stone-500">
+                        {item.color_primary} - {item.subcategory} - F{item.formality}
+                      </p>
+                      {!item.flatters_me && (
+                        <p className="text-[11px] text-amber-700">⚠ flagged: violates rules</p>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {editingItem && (
+              <div className="mt-6 rounded-lg border border-amber-200 bg-stone-50 p-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="text-sm font-semibold">Edit: {editingItem.name}</h3>
+                  <button
+                    type="button"
+                    onClick={() => setEditingItem(null)}
+                    className="text-xs text-stone-500 hover:text-stone-800"
                   >
-                    <img
-                      src={item.photo_url}
-                      alt={item.name}
-                      className="h-32 w-full rounded object-cover"
-                      loading="lazy"
-                    />
-                    <p className="mt-1 truncate text-xs font-medium" title={item.name}>
-                      {item.name}
-                    </p>
-                    <p className="truncate text-[11px] text-stone-500">
-                      {item.color_primary} - {item.subcategory} - F{item.formality}
-                    </p>
-                    {!item.flatters_me && (
-                      <p className="text-[11px] text-amber-700">⚠ flagged: violates rules</p>
+                    Cancel
+                  </button>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-[200px_1fr]">
+                  <img
+                    src={editingItem.photo_url}
+                    alt={editingItem.name}
+                    className="h-48 w-full rounded border border-stone-200 object-cover sm:h-auto"
+                  />
+                  <div className="space-y-2 text-sm">
+                    {!editingItem.flatters_me && (
+                      <div className="rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">
+                        <strong>Flagged as violating your rules.</strong> Read the description below — it usually
+                        explains why (color family, silhouette, etc.). If you disagree, uncheck &quot;flagged&quot;
+                        below to clear it. If Claude got the metadata wrong (e.g., wrong color name), fix the
+                        fields and save.
+                      </div>
                     )}
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <Field label="Name *">
+                        <input
+                          value={editingItem.name}
+                          onChange={(e) => setEditingItem({ ...editingItem, name: e.target.value })}
+                          className="w-full rounded border border-stone-300 px-2 py-1 text-sm"
+                        />
+                      </Field>
+                      <Field label="Category">
+                        <select
+                          value={editingItem.category}
+                          onChange={(e) =>
+                            setEditingItem({ ...editingItem, category: e.target.value as Category })
+                          }
+                          className="w-full rounded border border-stone-300 bg-white px-2 py-1 text-sm"
+                        >
+                          {CATEGORIES.map((c) => (
+                            <option key={c.value} value={c.value}>
+                              {c.label}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+                      <Field label="Subcategory">
+                        <input
+                          value={editingItem.subcategory}
+                          onChange={(e) => setEditingItem({ ...editingItem, subcategory: e.target.value })}
+                          className="w-full rounded border border-stone-300 px-2 py-1 text-sm"
+                        />
+                      </Field>
+                      <Field label="Color (primary)">
+                        <input
+                          value={editingItem.color_primary}
+                          onChange={(e) => setEditingItem({ ...editingItem, color_primary: e.target.value })}
+                          className="w-full rounded border border-stone-300 px-2 py-1 text-sm"
+                        />
+                      </Field>
+                      <Field label="Color family">
+                        <select
+                          value={editingItem.color_family}
+                          onChange={(e) =>
+                            setEditingItem({ ...editingItem, color_family: e.target.value as ColorFamily })
+                          }
+                          className="w-full rounded border border-stone-300 bg-white px-2 py-1 text-sm"
+                        >
+                          {COLOR_FAMILIES.map((c) => (
+                            <option key={c} value={c}>
+                              {c}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+                      <Field label="Silhouette">
+                        <input
+                          value={editingItem.silhouette || ""}
+                          onChange={(e) => setEditingItem({ ...editingItem, silhouette: e.target.value })}
+                          className="w-full rounded border border-stone-300 px-2 py-1 text-sm"
+                        />
+                      </Field>
+                      <Field label="Length">
+                        <input
+                          value={editingItem.length || ""}
+                          onChange={(e) => setEditingItem({ ...editingItem, length: e.target.value })}
+                          className="w-full rounded border border-stone-300 px-2 py-1 text-sm"
+                        />
+                      </Field>
+                      <Field label="Formality (1-5)">
+                        <input
+                          type="number"
+                          min={1}
+                          max={5}
+                          value={editingItem.formality}
+                          onChange={(e) =>
+                            setEditingItem({ ...editingItem, formality: Number(e.target.value) })
+                          }
+                          className="w-full rounded border border-stone-300 px-2 py-1 text-sm"
+                        />
+                      </Field>
+                      <Field label="Tags (comma separated)" full>
+                        <input
+                          value={editingItem.tags.join(", ")}
+                          onChange={(e) =>
+                            setEditingItem({
+                              ...editingItem,
+                              tags: e.target.value
+                                .split(",")
+                                .map((t) => t.trim().toLowerCase())
+                                .filter(Boolean),
+                            })
+                          }
+                          className="w-full rounded border border-stone-300 px-2 py-1 text-sm"
+                        />
+                      </Field>
+                      <Field label="Description" full>
+                        <textarea
+                          value={editingItem.description || ""}
+                          onChange={(e) => setEditingItem({ ...editingItem, description: e.target.value })}
+                          rows={3}
+                          className="w-full rounded border border-stone-300 px-2 py-1 text-sm"
+                        />
+                      </Field>
+                      <label className="flex items-center gap-2 text-xs sm:col-span-2">
+                        <input
+                          type="checkbox"
+                          checked={editingItem.flatters_me}
+                          onChange={(e) =>
+                            setEditingItem({ ...editingItem, flatters_me: e.target.checked })
+                          }
+                        />
+                        Flatters me (uncheck to flag as violating color/body rules)
+                      </label>
+                    </div>
+
+                    {editError && <p className="text-xs text-red-600">{editError}</p>}
+
+                    <div className="flex flex-wrap gap-2 pt-2">
+                      <button
+                        onClick={saveEdit}
+                        disabled={editStatus === "saving" || editStatus === "deleting"}
+                        className="rounded bg-stone-900 px-3 py-1 text-xs font-medium text-white hover:bg-black disabled:opacity-40"
+                      >
+                        {editStatus === "saving" ? "Saving..." : "Save changes"}
+                      </button>
+                      <button
+                        onClick={deleteEdit}
+                        disabled={editStatus === "saving" || editStatus === "deleting"}
+                        className="rounded border border-red-300 bg-white px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-40"
+                      >
+                        {editStatus === "deleting" ? "Deleting..." : "Delete this item"}
+                      </button>
+                    </div>
                   </div>
-                ))}
+                </div>
               </div>
             )}
           </section>
