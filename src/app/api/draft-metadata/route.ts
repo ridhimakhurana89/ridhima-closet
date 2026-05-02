@@ -38,7 +38,7 @@ const METADATA_SCHEMA = {
     color_family: { type: "string", enum: ["warm-deep", "warm-light", "cool-deep", "cool-light", "neutral"] },
     silhouette: { type: "string" },
     length: { type: "string" },
-    formality: { type: "integer", minimum: 1, maximum: 5 },
+    formality: { type: "integer" },
     tags: { type: "array", items: { type: "string" } },
     flatters_me: { type: "boolean" },
   },
