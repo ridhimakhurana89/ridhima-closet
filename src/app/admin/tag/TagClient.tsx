@@ -93,6 +93,8 @@ export default function TagClient() {
   const [items, setItems] = useState<Item[]>([]);
   const [counts, setCounts] = useState<{ total: number; by_category: Record<string, number> } | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [batchRunning, setBatchRunning] = useState(false);
+  const savingIds = useRef<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   async function refreshCounts() {
@@ -171,16 +173,28 @@ export default function TagClient() {
   }
 
   async function draftAll() {
-    const targets = items.filter((it) => it.status === "ready" || it.status === "error");
-    for (const item of targets) {
-      await draftMetadata(item);
+    if (batchRunning) return;
+    setBatchRunning(true);
+    try {
+      const targets = items.filter((it) => it.status === "ready" || it.status === "error");
+      for (const item of targets) {
+        await draftMetadata(item);
+      }
+    } finally {
+      setBatchRunning(false);
     }
   }
 
   async function saveAll() {
-    const targets = items.filter((it) => it.status === "drafted" && it.metadata.name.trim());
-    for (const item of targets) {
-      await saveItem(item);
+    if (batchRunning) return;
+    setBatchRunning(true);
+    try {
+      const targets = items.filter((it) => it.status === "drafted" && it.metadata.name.trim());
+      for (const item of targets) {
+        await saveItem(item);
+      }
+    } finally {
+      setBatchRunning(false);
     }
   }
 
@@ -189,6 +203,8 @@ export default function TagClient() {
       setItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, error: "Name is required" } : it)));
       return;
     }
+    if (savingIds.current.has(item.id)) return;
+    savingIds.current.add(item.id);
     setItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, status: "saving", error: undefined } : it)));
     try {
       const res = await fetch("/api/save-item", {
@@ -207,6 +223,8 @@ export default function TagClient() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Save failed";
       setItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, status: "error", error: msg } : it)));
+    } finally {
+      savingIds.current.delete(item.id);
     }
   }
 
@@ -262,17 +280,17 @@ export default function TagClient() {
             {uploading && <span className="text-sm text-stone-600">Compressing...</span>}
             <button
               onClick={draftAll}
-              disabled={items.filter((it) => it.status === "ready").length === 0}
+              disabled={batchRunning || items.filter((it) => it.status === "ready").length === 0}
               className="ml-auto rounded bg-amber-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-800 disabled:opacity-40"
             >
-              AI: Draft all unstarted
+              {batchRunning ? "Working..." : "AI: Draft all unstarted"}
             </button>
             <button
               onClick={saveAll}
-              disabled={items.filter((it) => it.status === "drafted" && it.metadata.name.trim()).length === 0}
+              disabled={batchRunning || items.filter((it) => it.status === "drafted" && it.metadata.name.trim()).length === 0}
               className="rounded bg-stone-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-black disabled:opacity-40"
             >
-              Save all drafted
+              {batchRunning ? "Working..." : "Save all drafted"}
             </button>
           </div>
 
