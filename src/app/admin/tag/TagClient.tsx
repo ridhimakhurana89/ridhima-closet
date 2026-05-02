@@ -43,6 +43,19 @@ type Item = {
   error?: string;
 };
 
+type SavedItem = {
+  id: string;
+  name: string;
+  category: Category;
+  subcategory: string;
+  photo_url: string;
+  color_primary: string;
+  color_family: ColorFamily;
+  formality: number;
+  flatters_me: boolean;
+  tags: string[];
+};
+
 const EMPTY_METADATA = (category: Category): ItemMetadata => ({
   category,
   subcategory: "",
@@ -94,6 +107,9 @@ export default function TagClient() {
   const [counts, setCounts] = useState<{ total: number; by_category: Record<string, number> } | null>(null);
   const [uploading, setUploading] = useState(false);
   const [batchRunning, setBatchRunning] = useState(false);
+  const [galleryCategory, setGalleryCategory] = useState<Category | null>(null);
+  const [galleryItems, setGalleryItems] = useState<SavedItem[]>([]);
+  const [galleryLoading, setGalleryLoading] = useState(false);
   const savingIds = useRef<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -106,9 +122,37 @@ export default function TagClient() {
     }
   }
 
+  async function loadGallery(cat: Category) {
+    setGalleryLoading(true);
+    try {
+      const res = await fetch(`/api/items?category=${cat}`);
+      if (!res.ok) throw new Error("Failed to load gallery");
+      const data = await res.json();
+      setGalleryItems(data.items as SavedItem[]);
+    } catch {
+      setGalleryItems([]);
+    } finally {
+      setGalleryLoading(false);
+    }
+  }
+
+  function toggleGallery(cat: Category) {
+    if (galleryCategory === cat) {
+      setGalleryCategory(null);
+      setGalleryItems([]);
+      return;
+    }
+    setGalleryCategory(cat);
+    loadGallery(cat);
+  }
+
   useEffect(() => {
     refreshCounts();
   }, []);
+
+  useEffect(() => {
+    if (galleryCategory) loadGallery(galleryCategory);
+  }, [counts?.total, galleryCategory]);
 
   async function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
@@ -253,7 +297,7 @@ export default function TagClient() {
         </header>
 
         <section className="mb-6 rounded-lg border border-stone-200 bg-white p-4">
-          <div className="flex flex-wrap items-center gap-4">
+          <div className="flex flex-wrap items-center gap-3">
             <label className="text-sm font-medium">
               Category:{" "}
               <select
@@ -268,6 +312,7 @@ export default function TagClient() {
                 ))}
               </select>
             </label>
+
             <input
               ref={fileInputRef}
               type="file"
@@ -275,37 +320,109 @@ export default function TagClient() {
               multiple
               onChange={(e) => handleFiles(e.target.files)}
               disabled={uploading}
-              className="text-sm"
+              className="sr-only"
+              id="photo-upload"
             />
+            <label
+              htmlFor="photo-upload"
+              className={`cursor-pointer rounded border border-stone-300 bg-stone-100 px-3 py-1.5 text-sm font-medium text-stone-800 hover:bg-stone-200 ${
+                uploading ? "pointer-events-none opacity-60" : ""
+              }`}
+            >
+              Choose photos
+            </label>
             {uploading && <span className="text-sm text-stone-600">Compressing...</span>}
+
             <button
               onClick={draftAll}
               disabled={batchRunning || items.filter((it) => it.status === "ready").length === 0}
               className="ml-auto rounded bg-amber-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-800 disabled:opacity-40"
             >
-              {batchRunning ? "Working..." : "AI: Draft all unstarted"}
+              {batchRunning ? "Working..." : "Generate descriptions"}
             </button>
             <button
               onClick={saveAll}
               disabled={batchRunning || items.filter((it) => it.status === "drafted" && it.metadata.name.trim()).length === 0}
               className="rounded bg-stone-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-black disabled:opacity-40"
             >
-              {batchRunning ? "Working..." : "Save all drafted"}
+              {batchRunning ? "Working..." : "Save all"}
             </button>
           </div>
 
           {counts && (
-            <div className="mt-3 flex flex-wrap gap-3 text-xs text-stone-600">
-              <span className="font-medium">Saved so far:</span>
-              <span>Total {counts.total}</span>
-              {CATEGORIES.map((c) => (
-                <span key={c.value}>
-                  {c.label} {counts.by_category[c.value] || 0}
-                </span>
-              ))}
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+              <span className="font-medium text-stone-600">Saved so far:</span>
+              <span className="rounded bg-stone-100 px-2 py-1 text-stone-700">Total {counts.total}</span>
+              {CATEGORIES.map((c) => {
+                const count = counts.by_category[c.value] || 0;
+                const active = galleryCategory === c.value;
+                return (
+                  <button
+                    key={c.value}
+                    type="button"
+                    onClick={() => toggleGallery(c.value)}
+                    className={`rounded px-2 py-1 transition ${
+                      active
+                        ? "bg-amber-700 text-white"
+                        : "bg-stone-100 text-stone-700 hover:bg-stone-200"
+                    }`}
+                  >
+                    {c.label} {count}
+                  </button>
+                );
+              })}
             </div>
           )}
         </section>
+
+        {galleryCategory && (
+          <section className="mb-6 rounded-lg border border-stone-200 bg-white p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-base font-semibold">
+                {CATEGORIES.find((c) => c.value === galleryCategory)?.label} — saved ({galleryItems.length})
+              </h2>
+              <button
+                type="button"
+                onClick={() => toggleGallery(galleryCategory)}
+                className="text-xs text-stone-500 hover:text-stone-800"
+              >
+                Close
+              </button>
+            </div>
+            {galleryLoading ? (
+              <p className="text-sm text-stone-500">Loading...</p>
+            ) : galleryItems.length === 0 ? (
+              <p className="text-sm text-stone-500">Nothing saved in this category yet.</p>
+            ) : (
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+                {galleryItems.map((item) => (
+                  <div
+                    key={item.id}
+                    className={`rounded border p-2 ${
+                      item.flatters_me ? "border-stone-200" : "border-amber-300 bg-amber-50"
+                    }`}
+                  >
+                    <img
+                      src={item.photo_url}
+                      alt={item.name}
+                      className="h-32 w-full rounded object-cover"
+                      loading="lazy"
+                    />
+                    <p className="mt-1 truncate text-xs font-medium" title={item.name}>
+                      {item.name}
+                    </p>
+                    <p className="truncate text-[11px] text-stone-500">
+                      {item.color_primary} - {item.subcategory} - F{item.formality}
+                    </p>
+                    {!item.flatters_me && (
+                      <p className="text-[11px] text-amber-700">⚠ flagged: violates rules</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
 
         <div className="space-y-4">
           {items.length === 0 && (
