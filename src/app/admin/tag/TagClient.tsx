@@ -177,6 +177,13 @@ export default function TagClient() {
     }
   }
 
+  async function saveAll() {
+    const targets = items.filter((it) => it.status === "drafted" && it.metadata.name.trim());
+    for (const item of targets) {
+      await saveItem(item);
+    }
+  }
+
   async function saveItem(item: Item) {
     if (!item.metadata.name.trim()) {
       setItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, error: "Name is required" } : it)));
@@ -259,6 +266,13 @@ export default function TagClient() {
               className="ml-auto rounded bg-amber-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-800 disabled:opacity-40"
             >
               AI: Draft all unstarted
+            </button>
+            <button
+              onClick={saveAll}
+              disabled={items.filter((it) => it.status === "drafted" && it.metadata.name.trim()).length === 0}
+              className="rounded bg-stone-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-black disabled:opacity-40"
+            >
+              Save all drafted
             </button>
           </div>
 
